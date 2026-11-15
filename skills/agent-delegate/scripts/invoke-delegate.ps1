@@ -11,8 +11,7 @@ param(
     [string]$TestCommandJson,
     [string]$Model,
     [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')] [string]$Effort,
-    [switch]$InspectRoute,
-    [ValidateRange(10, 3600)] [int]$TimeoutSeconds = 900
+    [switch]$InspectRoute
 )
 
 $ErrorActionPreference = 'Stop'

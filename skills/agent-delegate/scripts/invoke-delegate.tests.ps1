@@ -70,7 +70,7 @@ function Invoke-MockReview {
         CLAUDE_CODE_EFFORT_LEVEL = 'max'
     } }
     $env:REVIEW_MOCK_MODE = $Mode
-    return & $runner -From codex -Mode review -PromptPath (Join-Path $testRoot 'packet.txt') -ReviewDirectory $ReviewDirectory -TimeoutSeconds 10
+    return & $runner -From codex -Mode review -PromptPath (Join-Path $testRoot 'packet.txt') -ReviewDirectory $ReviewDirectory
 }
 
 try {
@@ -234,7 +234,7 @@ if ($sandbox -eq 'workspace-write') {
 '@
     Add-FakeCli 'codex' $fakeCodex
     $packet = Join-Path $testRoot 'packet.txt'
-    $codexResult = @(& $runner -From claude -PromptPath $packet -TimeoutSeconds 10)
+    $codexResult = @(& $runner -From claude -PromptPath $packet)
     Assert-Value $codexResult[-1] 'Synthetic Codex review completed.' 'Codex review compatibility regressed'
     $testCount++
     Test-Failure { & $runner -From claude -PromptPath $packet -Model 'unsupported-model' } 'does not advertise'

@@ -1,4 +1,4 @@
-# Captures bounded child processes while preserving private diagnostics on every exit.
+# Streams child process output and preserves private diagnostics.
 
 function New-DelegateProcessJob {
     if (-not $IsWindows) { return $null }
@@ -36,7 +36,7 @@ function New-DelegateCapture {
     $capture = @{
         Timer = [Diagnostics.Stopwatch]::StartNew(); Status = 'running'; ExitCode = $null
         Command = $Command.Name; ProcessId = $Process.Id; FirstOutputSeconds = $null; LastOutputSeconds = $null
-        LastEvent = 'starting'; Events = 0; ResultReceived = $false; ProgressReports = 0; Job = $null; TreeOwnership = 'live-root'; ExitedAt = $null
+        LastEvent = 'starting'; Events = 0; ResultReceived = $false; ProgressReports = 0; Job = $null; TreeOwnership = 'live-root'
         Environment = $Environment; Base = Join-Path $script:DelegateLogDirectory ('process-{0:D2}' -f $script:DelegateProcessNumber)
     }
     foreach ($entry in @(@('Stdout', $Process.StandardOutput), @('Stderr', $Process.StandardError))) {
@@ -120,7 +120,7 @@ function Save-DelegateDiagnostic {
     }
     $summary = [ordered]@{
         Command = $Capture.Command; ProcessId = $Capture.ProcessId; Status = $Capture.Status; ExitCode = $Capture.ExitCode
-        TimeoutSeconds = $TimeoutSeconds; ElapsedSeconds = [math]::Round($Capture.Timer.Elapsed.TotalSeconds, 3)
+        ElapsedSeconds = [math]::Round($Capture.Timer.Elapsed.TotalSeconds, 3)
         FirstOutputSeconds = $Capture.FirstOutputSeconds; LastOutputSeconds = $Capture.LastOutputSeconds
         LastEvent = $Capture.LastEvent; Events = $Capture.Events; ResultReceived = $Capture.ResultReceived
         TreeOwnership = $Capture.TreeOwnership
@@ -135,7 +135,7 @@ function Write-DelegateProgress {
     $quiet = if ($null -eq $Capture.LastOutputSeconds) { $elapsed } else { [math]::Round($elapsed - $Capture.LastOutputSeconds) }
     $Capture.ProgressReports++
     Save-DelegateDiagnostic $Capture
-    Write-Information "Delegate $($Capture.Command): ${elapsed}s elapsed; events=$($Capture.Events); last=$($Capture.LastEvent); quiet=${quiet}s; diagnostics=$($Capture.Base).status.json" -InformationAction Continue
+    Write-Information "Delegate $($Capture.Command): ${elapsed}s elapsed; status=$($Capture.Status); events=$($Capture.Events); last=$($Capture.LastEvent); quiet=${quiet}s; diagnostics=$($Capture.Base).status.json" -InformationAction Continue
 }
 
 function Wait-DelegateOutput {
@@ -154,20 +154,12 @@ function Wait-DelegateProcess {
         Receive-DelegatePipe $Capture.Stderr $Capture
         if ($Process.HasExited) {
             if ($Capture.Job) { $Capture.Job.Dispose(); $Capture.Job = $null }
-            if ($null -eq $Capture.ExitedAt) { $Capture.ExitedAt = $Capture.Timer.Elapsed.TotalSeconds }
-        }
-        if ($Process.HasExited -and $Capture.Stdout.Ended -and $Capture.Stderr.Ended) {
             $Capture.ExitCode = $Process.ExitCode
-            $Capture.Status = if ($Process.ExitCode -eq 0) { 'completed' } else { 'process_error' }
-            return
-        }
-        if ($null -ne $Capture.ExitedAt -and $Capture.Timer.Elapsed.TotalSeconds - $Capture.ExitedAt -gt 2) {
-            $Capture.Status = 'pipe_drain_timeout'
-            throw [TimeoutException]::new("$($Capture.Command) exited but inherited output pipes remain open. Check remaining descendants before retrying. Diagnostics: $($Capture.Base).status.json")
-        }
-        if ($Capture.Timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
-            $Capture.Status = 'timed_out'
-            throw [TimeoutException]::new("$($Capture.Command) exceeded ${TimeoutSeconds}s total deadline; last event=$($Capture.LastEvent). Diagnostics: $($Capture.Base).status.json")
+            if ($Capture.Stdout.Ended -and $Capture.Stderr.Ended) {
+                $Capture.Status = if ($Capture.ExitCode -eq 0) { 'completed' } else { 'process_error' }
+                return
+            }
+            $Capture.Status = 'draining'
         }
         if ($ReportProgress -and $Capture.Timer.Elapsed.TotalSeconds -ge $nextReport) {
             Write-DelegateProgress $Capture
@@ -182,12 +174,8 @@ function Close-DelegateCapture {
     if ($Capture.Job) { $Capture.Job.Dispose(); $Capture.Job = $null }
     try { if (-not $Process.HasExited) { $Process.Kill($true) } }
     catch [InvalidOperationException] { if (-not $Process.HasExited) { throw } }
-    $drain = [Diagnostics.Stopwatch]::StartNew()
-    while ((-not $Capture.Stdout.Ended -or -not $Capture.Stderr.Ended) -and $drain.Elapsed.TotalSeconds -lt 2) {
-        Receive-DelegatePipe $Capture.Stdout $Capture
-        Receive-DelegatePipe $Capture.Stderr $Capture
-        Wait-DelegateOutput $Capture
-    }
+    Receive-DelegatePipe $Capture.Stdout $Capture
+    Receive-DelegatePipe $Capture.Stderr $Capture
     if ($Process.HasExited) { $Capture.ExitCode = $Process.ExitCode }
     $Capture.Timer.Stop()
     Save-DelegateDiagnostic $Capture
@@ -204,10 +192,6 @@ function Send-DelegateInput {
             if ($Capture.Job) { $Capture.Job.Dispose(); $Capture.Job = $null }
             $Capture.Status = 'input_closed'
             throw [IO.IOException]::new("$($Capture.Command) exited before accepting its input (exit $($Process.ExitCode)). Diagnostics: $($Capture.Base).status.json")
-        }
-        if ($Capture.Timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
-            $Capture.Status = 'input_timeout'
-            throw [TimeoutException]::new("$($Capture.Command) did not accept its input. Diagnostics: $($Capture.Base).status.json")
         }
         if ($ReportProgress -and $Capture.Timer.Elapsed.TotalSeconds -ge $nextReport) {
             Write-DelegateProgress $Capture
@@ -234,20 +218,25 @@ function Invoke-DelegateProcess {
         $capture.Job = $job
         if ($job) { $capture.TreeOwnership = if ($assigned) { 'windows-job' } else { 'root-exited-before-job' } }
         Save-DelegateDiagnostic $capture
-        if ($ReportProgress) { Write-Information "Delegate $($Command.Name) started; total deadline=${TimeoutSeconds}s; diagnostics=$($capture.Base).status.json" -InformationAction Continue }
+        if ($ReportProgress) { Write-Information "Delegate $($Command.Name) started; diagnostics=$($capture.Base).status.json" -InformationAction Continue }
         Send-DelegateInput $proc $capture $InputText -ReportProgress:$ReportProgress -ProgressIntervalSeconds $ProgressIntervalSeconds
         Wait-DelegateProcess $proc $capture -ReportProgress:$ReportProgress -ProgressIntervalSeconds $ProgressIntervalSeconds
         return @{ ExitCode = $proc.ExitCode; Output = $capture.Stdout.Text.ToString(); Error = $capture.Stderr.Text.ToString(); Diagnostics = "$($capture.Base).status.json" }
     } catch {
         if ($capture) {
-            if ($capture.Status -eq 'running') { $capture.Status = 'failed' }
+            if ($capture.Status -in @('running', 'draining') -and $_.Exception -isnot [System.Management.Automation.PipelineStoppedException]) {
+                $capture.Status = 'failed'
+            }
             $_.Exception.Data['DiagnosticsDirectory'] = $script:DelegateLogDirectory
             $_.Exception.Data['Diagnostics'] = "$($capture.Base).status.json"
         }
         throw
     } finally {
         try {
-            if ($capture) { Close-DelegateCapture $proc $capture }
+            if ($capture) {
+                if ($capture.Status -in @('running', 'draining')) { $capture.Status = 'cancelled' }
+                Close-DelegateCapture $proc $capture
+            }
             elseif ($proc -and -not $proc.HasExited) { $proc.Kill($true) }
         } finally {
             if ($job) { $job.Dispose() }
