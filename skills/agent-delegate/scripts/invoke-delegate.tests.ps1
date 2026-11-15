@@ -1,6 +1,6 @@
 # Exercises provider routing and review verification with an isolated fake CLI.
 $ErrorActionPreference = 'Stop'
-$runner = Join-Path $PSScriptRoot 'invoke-review.ps1'
+$runner = Join-Path $PSScriptRoot 'invoke-delegate.ps1'
 $testRoot = [IO.Directory]::CreateTempSubdirectory('review-route-test-').FullName
 $savedEnvironment = @{}
 $testCount = 0
@@ -16,6 +16,18 @@ function Assert-Value {
     if ($Actual -cne $Expected) { throw $Message }
 }
 
+function Add-FakeCli {
+    param([string]$Name, [string]$Content)
+    if ($IsWindows) {
+        [IO.File]::WriteAllText((Join-Path $testRoot "$Name.ps1"), $Content)
+    } else {
+        $path = Join-Path $testRoot $Name
+        [IO.File]::WriteAllText($path, "#!/usr/bin/env pwsh`n$Content")
+        chmod +x $path
+        if ($LASTEXITCODE -ne 0) { throw "Could not prepare $Name fixture." }
+    }
+}
+
 function Set-Fixture {
     param([hashtable]$Settings = @{}, [hashtable]$Environment = @{})
     foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
@@ -29,7 +41,7 @@ function Set-Fixture {
 function Test-Route {
     param([hashtable]$Settings, [hashtable]$Environment, [hashtable]$Expected)
     Set-Fixture $Settings $Environment
-    $route = & $runner -Reviewer claude -InspectRoute | ConvertFrom-Json
+    $route = & $runner -From codex -InspectRoute | ConvertFrom-Json
     foreach ($key in $Expected.Keys) { Assert-Value $route.$key $Expected[$key] "Route case $script:testCount field $key was '$($route.$key)', expected '$($Expected[$key])'" }
     Assert-Value ($route.PSObject.Properties.Name -contains 'Environment') $false 'Inspection exposed credential-bearing environment'
     $script:testCount++
@@ -57,7 +69,7 @@ function Invoke-MockReview {
         CLAUDE_CODE_EFFORT_LEVEL = 'max'
     } }
     $env:REVIEW_MOCK_MODE = $Mode
-    return & $runner -Reviewer claude -PromptPath (Join-Path $testRoot 'packet.txt') -ReviewDirectory $ReviewDirectory -TimeoutSeconds 10
+    return & $runner -From codex -Mode review -PromptPath (Join-Path $testRoot 'packet.txt') -ReviewDirectory $ReviewDirectory -TimeoutSeconds 10
 }
 
 try {
@@ -77,17 +89,17 @@ try {
     Test-Route @{} @{ ANTHROPIC_MODEL = 'fable'; ANTHROPIC_DEFAULT_FABLE_MODEL = 'mapped-model[1M]' } @{ Model = 'mapped-model[1M]' }
     Test-Route @{} @{ ANTHROPIC_MODEL = 'fable[1M]'; ANTHROPIC_DEFAULT_FABLE_MODEL = 'mapped-model' } @{ Model = 'mapped-model[1M]' }
     Set-Fixture @{} @{ ANTHROPIC_MODEL = 'configured-model' }
-    $override = & $runner -Reviewer claude -InspectRoute -Model 'explicit-model' -Effort max | ConvertFrom-Json
+    $override = & $runner -From codex -InspectRoute -Model 'explicit-model' -Effort max | ConvertFrom-Json
     Assert-Value $override.Model 'explicit-model' 'Explicit model override was ignored'
     Assert-Value $override.Effort 'max' 'Explicit effort override was ignored'
     $testCount++
-    $override = & $runner -Reviewer claude -InspectRoute -Effort high | ConvertFrom-Json
+    $override = & $runner -From codex -InspectRoute -Effort high | ConvertFrom-Json
     Assert-Value $override.Effort 'high' 'Explicit user effort exception was overridden'
     $testCount++
     Set-Fixture @{} @{ ANTHROPIC_BASE_URL = 'invalid-synthetic-url' }
-    Test-Failure { & $runner -Reviewer claude -InspectRoute } 'ANTHROPIC_BASE_URL'
+    Test-Failure { & $runner -From codex -InspectRoute } 'ANTHROPIC_BASE_URL'
     Set-Fixture
-    Test-Failure { & $runner -Reviewer claude -PromptPath 'unused' } 'No review model is configured'
+    Test-Failure { & $runner -From codex -PromptPath 'unused' } 'No delegated model is configured'
 
     [IO.File]::WriteAllText((Join-Path $testRoot 'packet.txt'), 'Neutral synthetic review packet.')
     $fakeCLI = @'
@@ -98,6 +110,19 @@ if ($effort -ne $env:CLAUDE_CODE_EFFORT_LEVEL) { throw 'Effort flag and child en
 foreach ($required in @('--print', '--restricted', '--strict-mcp-config', '--verbose', '--no-session-persistence')) {
     if ([Array]::IndexOf($args, $required) -lt 0) { throw 'Evidence confinement was not enabled' }
 }
+$toolsArg = $args[[Array]::IndexOf($args, '--tools') + 1]
+if ($toolsArg -eq 'Read,Glob,Grep,Edit,Write') {
+    if ($args -notcontains 'acceptEdits' -or $args -notcontains 'none' -or $instruction -notmatch 'isolated checkout') { throw 'Expected scoped Claude edits' }
+    if ([IO.File]::ReadAllText((Join-Path ([Environment]::CurrentDirectory) 'tracked.txt')) -ne 'committed') { throw 'Wrong source baseline' }
+    [IO.File]::WriteAllText((Join-Path ([Environment]::CurrentDirectory) 'tracked.txt'), 'claude edit')
+    $actual = $model -replace '(?i)\[1m\]$', ''
+    $events = @(
+        @{ type = 'system'; subtype = 'init'; model = $actual; tools = ($toolsArg -split ','); mcp_servers = @() }
+        @{ type = 'result'; result = 'Synthetic Claude code completed.'; is_error = $false; modelUsage = @{ $actual = @{ canonicalModel = $actual } } }
+    )
+    ConvertTo-Json -InputObject $events -Depth 10 -Compress
+    exit
+}
 $expectedArguments = @{ '--tools' = 'Read,Glob,Grep'; '--output-format' = 'json' }
 foreach ($name in $expectedArguments.Keys) {
     $index = [Array]::IndexOf($args, $name)
@@ -107,8 +132,9 @@ foreach ($removed in @('--max-turns', '--safe-mode', '--setting-sources', '--sys
     if ([Array]::IndexOf($args, $removed) -ge 0) { throw 'The native review workflow was overridden' }
 }
 if ($instruction -notmatch '^Read (review-request-[a-f0-9]+\.txt)') { throw 'Evidence read instruction is missing' }
-if (-not (Test-Path -LiteralPath $Matches[1])) { throw 'Curated request file is unavailable' }
 $requestName = $Matches[1]
+if ($instruction -notmatch 'counterexamples' -or $instruction -notmatch 'measured baseline') { throw 'Adversarial review criteria are missing' }
+if (-not (Test-Path -LiteralPath $requestName)) { throw 'Curated request file is unavailable' }
 if ([IO.File]::ReadAllText((Join-Path ([Environment]::CurrentDirectory) $requestName)) -cne [IO.File]::ReadAllText((Join-Path $env:CLAUDE_CONFIG_DIR 'packet.txt'))) { throw 'Review request content changed' }
 [IO.File]::WriteAllText((Join-Path $env:CLAUDE_CONFIG_DIR 'last-review-directory.txt'), [Environment]::CurrentDirectory)
 $actual = $model -replace '(?i)\[1m\]$', ''
@@ -142,7 +168,7 @@ if ($env:REVIEW_MOCK_MODE -in @('structured-tool', 'denied-tool')) {
 $events += @{ type = 'result'; result = $verdict; is_error = $isError; modelUsage = @{ $actual = @{ canonicalModel = $actual } } }
 ConvertTo-Json -InputObject $events -Depth 10 -Compress
 '@
-    [IO.File]::WriteAllText((Join-Path $testRoot 'claude.ps1'), $fakeCLI)
+    Add-FakeCli 'claude' $fakeCLI
     $env:PATH = $testRoot + [IO.Path]::PathSeparator + $savedEnvironment.PATH
     $result = @(Invoke-MockReview)
     $verdict = $result[-1] | ConvertFrom-Json
@@ -155,8 +181,8 @@ ConvertTo-Json -InputObject $events -Depth 10 -Compress
     $testCount++
     Test-Failure { Invoke-MockReview 'mismatch' } 'model did not match'
     Test-Failure { Invoke-MockReview 'session-mismatch' } 'model did not match'
-    Test-Failure { Invoke-MockReview 'tools' } 'outside the evidence-file review scope'
-    Test-Failure { Invoke-MockReview 'mcp' } 'outside the evidence-file review scope'
+    Test-Failure { Invoke-MockReview 'tools' } 'outside the delegated file scope'
+    Test-Failure { Invoke-MockReview 'mcp' } 'outside the delegated file scope'
     Test-Failure { Invoke-MockReview 'auth' } 'configured-provider authentication failed'
     Test-Failure { Invoke-MockReview 'raw-tool' } 'tool request instead of a review verdict'
     Test-Failure { Invoke-MockReview 'structured-tool' } 'unresolved'
@@ -184,15 +210,62 @@ if ($args[0] -eq 'debug') {
     @{ models = @(@{ slug = 'gpt-6.1-sol'; visibility = 'list'; supported_reasoning_levels = @(@{ effort = 'xhigh' }, @{ effort = 'max' }) }) } | ConvertTo-Json -Depth 8 -Compress
     exit
 }
-$null = [Console]::In.ReadToEnd()
-@{ type = 'item.completed'; item = @{ type = 'agent_message'; text = 'Synthetic Codex review completed.' } } | ConvertTo-Json -Depth 6 -Compress
+$request = [Console]::In.ReadToEnd()
+$index = [Array]::IndexOf($args, '-s')
+$sandbox = $args[$index + 1]
+if ($sandbox -eq 'workspace-write') {
+    if ($request -notmatch 'isolated checkout' -or -not (Test-Path -LiteralPath 'tracked.txt')) { throw 'Expected code task in a populated snapshot' }
+    if ($args -notcontains 'sandbox_workspace_write.network_access=false' -or $args -notcontains 'sandbox_workspace_write.exclude_slash_tmp=true') { throw 'Code sandbox grants extra access' }
+    [IO.File]::WriteAllText((Join-Path ([Environment]::CurrentDirectory) 'tracked.txt'), 'edited')
+    [IO.File]::WriteAllText((Join-Path ([Environment]::CurrentDirectory) 'added.txt'), 'added')
+    @{ type = 'item.completed'; item = @{ type = 'command_execution'; command = 'synthetic verification'; exit_code = 0; status = 'completed' } } | ConvertTo-Json -Depth 6 -Compress
+    $response = 'Synthetic Codex code completed.'
+} elseif ($request -match 'Interpret the recorded test execution') {
+    if ($request -notmatch 'Exit code: 7' -or $request -notmatch 'synthetic failure') { throw 'Expected observed test result' }
+    if (Test-Path -LiteralPath 'tracked.txt') { throw 'The test analyst can see source files' }
+    $response = 'Synthetic Codex test analysis completed.'
+} else {
+    if ($sandbox -ne 'read-only' -or $args -notcontains 'shell_tool' -or $request -notmatch 'counterexamples' -or $request -notmatch 'Neutral synthetic') { throw 'Expected a packet-only adversarial review' }
+    $response = 'Synthetic Codex review completed.'
+}
+@{ type = 'item.completed'; item = @{ type = 'agent_message'; text = $response } } | ConvertTo-Json -Depth 6 -Compress
 @{ type = 'turn.completed' } | ConvertTo-Json -Compress
 '@
-    [IO.File]::WriteAllText((Join-Path $testRoot 'codex.ps1'), $fakeCodex)
-    $codexResult = @(& $runner -Reviewer codex -PromptPath (Join-Path $testRoot 'packet.txt') -TimeoutSeconds 10)
+    Add-FakeCli 'codex' $fakeCodex
+    $packet = Join-Path $testRoot 'packet.txt'
+    $codexResult = @(& $runner -From claude -PromptPath $packet -TimeoutSeconds 10)
     Assert-Value $codexResult[-1] 'Synthetic Codex review completed.' 'Codex review compatibility regressed'
     $testCount++
-    Test-Failure { & $runner -Reviewer codex -PromptPath (Join-Path $testRoot 'packet.txt') -Model 'unsupported-model' } 'does not advertise'
+    Test-Failure { & $runner -From claude -PromptPath $packet -Model 'unsupported-model' } 'does not advertise'
+    Test-Failure { & $runner -From claude -PromptPath $packet -ReviewDirectory $curated } 'Include Codex review evidence in -PromptPath'
+
+    $repo = [IO.Directory]::CreateDirectory((Join-Path $testRoot 'repo with spaces')).FullName
+    git -C $repo init --quiet --template=
+    [IO.File]::WriteAllText((Join-Path $repo 'tracked.txt'), 'committed')
+    git -C $repo add -- tracked.txt
+    git -C $repo -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m Fixture
+    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the test fixture.' }
+    [IO.File]::WriteAllText((Join-Path $repo 'tracked.txt'), 'local uncommitted edit')
+    $code = & $runner -From claude -Mode code -Repository $repo -PromptPath $packet | ConvertFrom-Json
+    Assert-Value $code.Summary 'Synthetic Codex code completed.' 'Wrong code mode result'
+    Assert-Value ($code.Diff -match '\+edited' -and $code.Diff -match '\+added') $true 'Code diff lost edits or added files'
+    Assert-Value ([IO.File]::ReadAllText((Join-Path $repo 'tracked.txt'))) 'local uncommitted edit' 'Code overwrote the caller checkout'
+    Assert-Value $code.AgentCommands[0].exit_code 0 'The sandboxed verification exit code was lost'
+    $claudeCode = & $runner -From codex -Mode code -Repository $repo -PromptPath $packet | ConvertFrom-Json
+    Assert-Value $claudeCode.Summary 'Synthetic Claude code completed.' 'Wrong Claude code mode result'
+    Assert-Value ($claudeCode.Diff -match '\+claude edit') $true 'Claude edit was missing from the diff'
+    $testCount++
+
+    $shell = (Get-Process -Id $PID).Path
+    $testCommand = ConvertTo-Json -InputObject @($shell, '-NoProfile', '-Command', "[Console]::Error.WriteLine('synthetic failure'); exit 7") -Compress
+    $test = & $runner -From claude -Mode test -Repository $repo -PromptPath $packet -TestCommandJson $testCommand | ConvertFrom-Json
+    Assert-Value $test.Test.ExitCode 7 'Test process exit status was lost'
+    Assert-Value $test.Summary 'Synthetic Codex test analysis completed.' 'Wrong test mode result'
+    Assert-Value ([IO.File]::ReadAllText((Join-Path $test.Checkout 'tracked.txt'))) 'committed' 'Test used unstaged source'
+    $testCount++
+    $writes = ConvertTo-Json -InputObject @($shell, '-NoProfile', '-Command', "[IO.File]::WriteAllText('tracked.txt', 'unexpected edit')") -Compress
+    Test-Failure { & $runner -From claude -Mode test -Repository $repo -PromptPath $packet -TestCommandJson $writes } 'test changed tracked files'
+    Test-Failure { & $runner -From claude -Mode test -Repository $repo -PromptPath $packet -TestCommandJson '"pwsh"' } 'must be an array'
     [pscustomobject]@{ passed = $testCount; externalInferenceRequests = 0 } | ConvertTo-Json -Compress
 } finally {
     foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys)) {

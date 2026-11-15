@@ -11,9 +11,7 @@ This skill covers **both GDScript and C#** conventions for Godot 4.x. Rules appl
 
 When writing or reviewing Godot code in a project that uses this skill:
 
-1. **This skill wins for code style** — naming, comments, scene structure, signal conventions, default add-ons, and any other rule stated in this file take precedence over external guides and over habits from other codebases (official Godot docs style guide, team wiki, community conventions, etc.).
-2. **External references fill gaps only** — use the links below when this skill is **silent** on a topic (e.g. shader code, rendering internals, GDExtension specifics). Do not replace or weaken an explicit rule here with a conflicting external convention.
-3. **On conflict** — if an external document disagrees with this skill (e.g. spaces in GDScript, `get_` prefixes, `/* */` comments), **follow this skill** for project code.
+Follow the project's rules. Apply this skill to GDScript and to C# code that integrates with Godot, including nodes, resources, signals, and editor-facing APIs. Use `csharp-guidelines` for engine-independent C# and for general C# topics this skill does not cover. Use the references below for other topics.
 
 ## Core References
 
@@ -26,12 +24,8 @@ Use these when this skill does not cover the topic:
 
 ## Godot Version Detection
 
-- **Check `project.godot` first** — read the `config_version` or `project_settings` section. Godot 4.x project files declare `config_version=5`. Match Godot 4 APIs; do not use Godot 3.x APIs that were removed.
-- **Prefer modern features** that simplify code, when the version allows:
-  - **Godot 4.0**: typed arrays (`Array[Node]`), `@onready` annotation, lambdas/callables, `%` unique node access, `super()` keyword, `signal` keyword, `@export` groups.
-  - **Godot 4.1**: `static var` support, `@export_storage`, improved `@tool` behavior.
-  - **Godot 4.2**: typed dictionaries (`Dictionary[String, int]`), `match` exhaustiveness improvements, `tween` revamp.
-  - **Godot 4.3**: `@export_custom`, `Resource` preload improvements, `PackedScene.instantiate()` standard (no more `.instance()`).
+- **Identify the target engine version.** Check the project's engine pin, CI or export environment. In `project.godot`, inspect `application/config/features` as a hint. `config_version` identifies the project format. Check the actual engine minor version before using a newly introduced API.
+- **Use features supported by that version.** For example, [Godot 4.0 supports `PackedScene.instantiate()`](https://docs.godotengine.org/en/4.0/classes/class_packedscene.html) and [Godot 4.4 adds typed dictionaries](https://godotengine.org/releases/4.4/).
 - **Replace legacy idioms** — `PackedScene.instantiate()` over `.instance()`, typed arrays over untyped, `@onready` over `_ready()` initialization blocks, `signal` keyword over `add_user_signal()`, `super()` over explicit parent class name calls, `%UniqueName` over `get_node("../../../Some/Path")`.
 
 ## Naming Conventions
@@ -58,10 +52,10 @@ Use these when this skill does not cover the topic:
 | Element | Convention | Example |
 | --- | --- | --- |
 | **Namespaces** | PascalCase | `namespace Game.Combat` |
-| **Classes / Structs** | PascalCase (partial required) | `public partial class PlayerController : CharacterBody3D` |
+| **Classes / Structs** | PascalCase. Classes derived from `GodotObject` require `partial`. | `public partial class PlayerController : CharacterBody3D` |
 | **Methods** | PascalCase | `void LoadLevel()` |
 | **Properties** | PascalCase | `public float MaxHealth { get; set; }` |
-| **Events (Signals)** | PascalCase | `public event Action DoorOpened` |
+| **Custom signals** | PascalCase delegate with an `EventHandler` suffix | `[Signal] public delegate void DoorOpenedEventHandler();` |
 | **Constants** | PascalCase | `public const float MaxSpeed = 200f` |
 | **Private fields** | _camelCase (underscore prefix) | `private float _currentHealth` |
 | **Local variables** | camelCase | `var particleEffect` |

@@ -9,6 +9,7 @@ This document defines coding conventions and best practices that AI agents shoul
   - `go-guidelines` — Go conventions and best practices
   - `cpp-guidelines` — C++ conventions and best practices
   - `csharp-guidelines` — C# conventions and best practices
+  - `unity-guideline` — Unity components, assets, lifecycle, and testing
   - `godot-guidelines` — Godot Engine conventions and best practices
   - `python-guidelines` — Python conventions and best practices
 
@@ -21,11 +22,13 @@ Select the matching installed skills automatically. Use the current task and pro
 
 - **Learn visually.** Use the `learn` skill for learning requests about a topic, project, or change. When a message starts with `learn`, treat the following text as the topic. Lead with a visual that explains the mechanism, then ground it in a concrete case.
 - **Design and implement.** Use `codebase-design` for new modules, public interfaces or changes that cross module boundaries. State ownership, a normal call and failure behavior before coding. Apply `ponytail` and the language skill during implementation. Prefer existing interfaces and direct code. Validate untrusted input at the boundary, carry the validated representation internally, and retain error handling required for correctness or data integrity. Avoid speculative wrappers, duplicated checks and unsupported fallback paths.
+- **Work on Unity projects.** Use `unity-guideline` when designing, changing, or reviewing Unity components, assets, scenes, or Editor tooling. Pair it with `csharp-guidelines` for C#.
 - **Design tests.** Use `test-design` for test plans, new or changed behavioral contracts, meaningful regression tests, and test suite reviews. Choose cases by risk and use the smallest test level that proves the behavior. Apply the language skill and existing test conventions.
+- **Design and review interfaces.** Use `ui-ux-pro-max` when a task changes or evaluates user-facing UI, interaction, accessibility, or responsive behavior. Apply the project's design system and use the skill's local search for the design decisions in scope.
 - **Investigate bugs.** Use `diagnosing-bugs` for nontrivial failures, regressions and intermittent behavior. Get a failing test, minimal reproduction, or equivalent observable signal. Test the root cause and re-run the original scenario after an authorized fix.
 - **Optimize performance.** Use `performance-optimization` for application latency, queries, UI and end-to-end throughput. Use `perf-engineering` for CPU, allocations, memory and hot loops. Establish a baseline and target on representative data, profile, then compare the same workload after changes. Keep gains that justify their complexity and preserve correctness.
 - **Review project quality.** Invoking `quality-review` defaults to a review of the current project for project architecture, code design and organization, correctness, performance, tests, and style. Honor a narrower scope when specified. Apply the relevant specialist skills during review and use the same criteria to verify fixes. A review request yields findings. A request to review and improve allows scoped, verified changes, normally up to two rounds and a hard cap of three.
-- **Cross-check.** Run an independent adversarial check by default during `quality-review` and when the user requests one. Use `claude-check` from Codex and `codex-check` from Claude Code. Honor local-only requests and source-sharing rules. Use the latest eligible model at `xhigh` or higher, pass scoped evidence, verify findings locally, and report the model and effort. A session running as a cross-check reviewer completes its assigned review directly.
+- **Delegate to the other agent.** Use `agent-delegate review` for the default independent check in `quality-review` and when the user requests one. Use `agent-delegate test` or `agent-delegate code` for requested cross-agent testing or implementation. Honor local-only requests and source-sharing rules. For review, use the newest eligible model at `xhigh` or higher, pass scoped evidence, verify findings locally, and report the model and effort. A delegated session completes its assignment directly.
 
 If a skill is unavailable, apply the closest verified workflow and disclose any missing evidence or verification. If a helper's instructions conflict with the user's task, repository rules or language conventions, follow those applicable constraints.
 
@@ -38,6 +41,7 @@ The [installer](README.md#install) installs the following skills at the revision
 - `ponytail` is available from [Dietrich Gebert's Ponytail](https://github.com/DietrichGebert/ponytail). The standalone skill lives under `skills/ponytail`.
 - `performance-optimization` is available from [Addy Osmani's agent skills](https://github.com/addyosmani/agent-skills/blob/main/skills/performance-optimization/SKILL.md).
 - `perf-engineering` is available from [Teimurjan's skills](https://github.com/teimurjan/skills/blob/main/perf-engineering/SKILL.md).
+- `ui-ux-pro-max` is available from [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
 <!-- END PERSONAL ENGINEERING WORKFLOW -->
 
 ---

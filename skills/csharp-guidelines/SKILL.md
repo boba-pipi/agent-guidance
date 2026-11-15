@@ -9,6 +9,8 @@ description: C# language coding conventions, naming rules, comment style, defaul
 
 When writing or reviewing C# in a project that uses this skill:
 
+Follow the project's rules. Apply `godot-guidelines` to Godot-facing C# types, including their engine-specific naming and signal rules. Use this skill for engine-independent C# and general C# topics.
+
 1. **This skill wins for code style** — naming, comments, namespace layout, default libraries, build/test defaults, and any other rule stated in this file take precedence over external guides and over habits from other codebases (Microsoft C# Coding Conventions, .NET Runtime style, team wiki, etc.).
 2. **External references fill gaps only** — use the links below when this skill is **silent** on a topic (e.g. Roslyn internals, MSBuild details, unsafe code). Do not replace or weaken an explicit rule here with a conflicting external convention.
 3. **On conflict** — if an external document disagrees with this skill (e.g. `s_camelCase` static fields, `m_` member prefixes, `GetXxx()` getters), **follow this skill** for project code.
@@ -31,7 +33,8 @@ Use these when this skill does not cover the topic:
   - **C# 10**: file-scoped namespaces, global usings, constant interpolated strings, record structs.
   - **C# 11**: raw string literals, required members, generic attributes, UTF-8 string literals.
   - **C# 12**: primary constructors, collection expressions, inline arrays, `nameof` parameter scopes.
-  - **C# 13**: `params` collections, `field` keyword (preview), partial properties, new lock object.
+  - **C# 13**: `params` collections, partial properties, `System.Threading.Lock`.
+  - **C# 14**: [`field`-backed properties](https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14#field-backed-properties).
 - **Replace legacy idioms** — `var` where the type is obvious, pattern matching over `is` + cast, `switch` expressions over imperative `switch`, `??` / `?.` over null checks, file-scoped namespaces, expression-bodied members for simple bodies.
 
 ## Naming Conventions
@@ -81,6 +84,8 @@ Format is not enough — a name must convey **meaning and intent**:
 ## Unity Serialization Conventions
 
 These rules apply when writing `MonoBehaviour` / `ScriptableObject` classes and other Unity-serialized types:
+
+Apply `unity-guideline` for Unity engine behavior, asset compatibility, and lifecycle. Use the naming conventions below for serialized C# fields.
 
 - **Prefer `[SerializeField] private` over public fields** when exposing values to the Inspector. This keeps implementation details encapsulated.
   - `[SerializeField] private float _moveSpeed = 5f;`

@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 7.4
 param(
     [string] $TargetHome = $HOME
 )
@@ -13,6 +13,7 @@ $upstreamSkills = @(
     'upstream/ponytail/skills/ponytail'
     'upstream/application-performance/skills/performance-optimization'
     'upstream/perf-engineering/perf-engineering'
+    'upstream/ui-ux-pro-max/.claude/skills/ui-ux-pro-max'
 )
 $repositories = @($upstreamSkills | ForEach-Object {
     ($_.Split('/') | Select-Object -First 2) -join '/'
@@ -51,6 +52,14 @@ function Publish-SkillBundle {
             $destination = Join-Path $incoming $source.Name
             if (Test-Path -LiteralPath $destination) { throw "Duplicate skill: $($source.Name)" }
             Copy-Item -LiteralPath $source.FullName -Destination $destination -Recurse
+        }
+        $uiGuide = Join-Path $incoming 'ui-ux-pro-max/SKILL.md'
+        $guide = [IO.File]::ReadAllText($uiGuide)
+        $pluginDirectory = '${CLAUDE_PLUGIN_ROOT}/.claude/skills/ui-ux-pro-max/'
+        if ($guide.Contains($pluginDirectory)) {
+            $pathNote = 'Replace <skill-dir> in the commands below with the absolute path to the directory containing this SKILL.md.'
+            $guide = $guide.Replace('## Running the search tool', "## Running the search tool`n`n$pathNote")
+            [IO.File]::WriteAllText($uiGuide, $guide.Replace($pluginDirectory, '<skill-dir>/'))
         }
         $existing = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
         if ($existing) {
@@ -97,6 +106,23 @@ function Add-SkillLink {
     New-Item -ItemType $linkType -Path $link -Target $Target | Out-Null
 }
 
+function Remove-RetiredSkillLinks {
+    param([string] $Directory, [string] $Bundle)
+    foreach ($name in @('claude-check', 'codex-check')) {
+        $link = Get-Item -LiteralPath (Join-Path $Directory $name) -Force -ErrorAction SilentlyContinue
+        if (-not $link) { continue }
+        if ($link.LinkType -in @('Junction', 'SymbolicLink') -and $link.LinkTarget -eq (Join-Path $Bundle $name)) {
+            if ($IsWindows -and $link.LinkType -eq 'Junction') {
+                [IO.Directory]::Delete($link.FullName)
+            } else {
+                [IO.File]::Delete($link.FullName)
+            }
+        } else {
+            Write-Warning "Retired skill $($link.FullName) belongs to the profile. Remove it if you want only agent-delegate."
+        }
+    }
+}
+
 $profilePath = (Get-Item -LiteralPath $TargetHome).FullName
 $installRoot = Join-Path $profilePath '.agent-guidance'
 [void] [IO.Directory]::CreateDirectory($installRoot)
@@ -106,16 +132,21 @@ $lock = [IO.File]::Open((Join-Path $store.FullName 'install.lock'), 'OpenOrCreat
 try {
     Publish-SkillBundle $store.FullName $sources
     $codexSkills = [IO.Directory]::CreateDirectory((Join-Path $profilePath '.agents/skills')).FullName
-    $claudeSkills = [IO.Directory]::CreateDirectory((Join-Path $profilePath '.claude/skills')).FullName
+    $claudeConfig = Join-Path $profilePath '.claude'
     $legacyCodex = Join-Path $profilePath '.codex/skills'
-    if ($env:CODEX_HOME -and $profilePath -eq (Get-Item -LiteralPath $HOME).FullName) {
-        $legacyCodex = Join-Path $env:CODEX_HOME 'skills'
+    if ($profilePath -eq (Get-Item -LiteralPath $HOME).FullName) {
+        if ($env:CODEX_HOME) { $legacyCodex = Join-Path $env:CODEX_HOME 'skills' }
+        if ($env:CLAUDE_CONFIG_DIR) { $claudeConfig = $env:CLAUDE_CONFIG_DIR }
     }
+    $claudeSkills = [IO.Directory]::CreateDirectory((Join-Path $claudeConfig 'skills')).FullName
+    $bundle = Join-Path $store.FullName 'skills'
     foreach ($source in $sources) {
-        $target = Join-Path (Join-Path $store.FullName 'skills') $source.Name
+        $target = Join-Path $bundle $source.Name
         Add-SkillLink $codexSkills $source.Name $target $legacyCodex
         Add-SkillLink $claudeSkills $source.Name $target
     }
+    Remove-RetiredSkillLinks $codexSkills $bundle
+    Remove-RetiredSkillLinks $claudeSkills $bundle
 } finally {
     $lock.Dispose()
 }

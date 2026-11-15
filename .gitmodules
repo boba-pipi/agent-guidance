@@ -10,3 +10,6 @@
 [submodule "perf-engineering"]
 	path = upstream/perf-engineering
 	url = https://github.com/teimurjan/skills.git
+[submodule "ui-ux-pro-max"]
+	path = upstream/ui-ux-pro-max
+	url = https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git

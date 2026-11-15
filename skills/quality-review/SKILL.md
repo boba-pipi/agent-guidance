@@ -24,10 +24,11 @@ Read and apply the relevant specialist skills before reaching conclusions about 
 - **Correctness.** Trace actual call paths, failure branches, persisted data, and compatibility. Check trust boundaries and authorization when relevant. Check observable invariants such as round trips or idempotence where relevant. Use `diagnosing-bugs` for nontrivial failures or suspected defects that need reproduction.
 - **Tests.** Use `test-design` to check whether the suite exercises important contracts, failure paths, and regressions. Run relevant existing tests when feasible. Name the behavior at risk and the missing assertion or test level. If edits are in scope, add a focused test when it closes a concrete gap.
 - **Code style.** Apply the project rules and corresponding language skill. Use configured lint or format checks when feasible. Cite the applicable rule and the affected code for material violations.
+- **User interface.** When UI is in scope, use the project's design system and `ui-ux-pro-max` to inspect interaction states, accessibility, and responsive behavior. Verify against a representative viewport or interaction when feasible.
 
 ## Adversarial verification
 
-Run one independent cross-check by default after the initial review when the matching review CLI and skill are available, including when the initial review found no issues. Use `claude-check` from Codex and `codex-check` from Claude Code. In a review-and-improve task, do this before selecting fixes. Pass the relevant criteria and scoped evidence so the reviewer can look for missed issues and challenge assumptions independently.
+Run one independent cross-check by default after the initial review using `agent-delegate review` when the other CLI and skill are available, including when the initial review found no issues. In a review-and-improve task, do this before selecting fixes. Pass the relevant criteria and scoped evidence so the reviewer can look for missed issues and challenge assumptions independently.
 
 Honor a local-only request and applicable source-sharing rules. A cross-check reviewer completes its assigned review without delegating it. Verify returned findings locally before including them as confirmed. Report whether the check ran, the model and effort, and any coverage limits or blocker. Use a second check only for material fixes or disputed findings. Limit the review to two external checks total.
 
@@ -35,7 +36,7 @@ Honor a local-only request and applicable source-sharing rules. A cross-check re
 
 Challenge each candidate finding, including those from the cross-check. Reproduce the issue or trace a concrete scenario from its trigger to its impact. For a test gap, identify the behavior and the faulty implementation that the suite would let pass. Apply the measured-evidence requirement to performance and cite the scoped rule for convention findings. Update conclusions when a focused check supplies stronger evidence.
 
-Lead with actionable findings in order of impact. Combine reports with the same root cause. Give each finding a severity, source location, triggering condition, evidence, impact, and a way to verify the fix. In a whole-project review, distinguish architecture findings from code design findings. Briefly state the paths, tests, and workloads reviewed and any material gaps in evidence, including unresolved risks that need a specific check.
+Lead with actionable findings in order of impact. Combine reports with the same root cause. Give each finding a severity, source location, triggering condition, evidence, impact, and a way to verify the fix. Name the specialist criterion used when a finding calls for a design, performance, testing, or style change. In a whole-project review, distinguish architecture findings from code design findings. Briefly state the paths, tests, and workloads reviewed and any material gaps in evidence, including unresolved risks that need a specific check.
 
 ## Improve and verify
 
