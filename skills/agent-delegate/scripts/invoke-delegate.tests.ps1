@@ -18,6 +18,7 @@ function Assert-Value {
 
 function Add-FakeCli {
     param([string]$Name, [string]$Content)
+    $Content = '[Console]::InputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)' + "`n" + $Content
     if ($IsWindows) {
         [IO.File]::WriteAllText((Join-Path $testRoot "$Name.ps1"), $Content)
     } else {
@@ -120,10 +121,10 @@ if ($toolsArg -eq 'Read,Glob,Grep,Edit,Write') {
         @{ type = 'system'; subtype = 'init'; model = $actual; tools = ($toolsArg -split ','); mcp_servers = @() }
         @{ type = 'result'; result = 'Synthetic Claude code completed.'; is_error = $false; modelUsage = @{ $actual = @{ canonicalModel = $actual } } }
     )
-    ConvertTo-Json -InputObject $events -Depth 10 -Compress
+    $events | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 10 -Compress }
     exit
 }
-$expectedArguments = @{ '--tools' = 'Read,Glob,Grep'; '--output-format' = 'json' }
+$expectedArguments = @{ '--tools' = 'Read,Glob,Grep'; '--output-format' = 'stream-json' }
 foreach ($name in $expectedArguments.Keys) {
     $index = [Array]::IndexOf($args, $name)
     if ($index -lt 0 -or $args[$index + 1] -ne $expectedArguments[$name]) { throw 'Native CLI argument changed' }
@@ -166,7 +167,7 @@ if ($env:REVIEW_MOCK_MODE -in @('structured-tool', 'denied-tool')) {
     }
 }
 $events += @{ type = 'result'; result = $verdict; is_error = $isError; modelUsage = @{ $actual = @{ canonicalModel = $actual } } }
-ConvertTo-Json -InputObject $events -Depth 10 -Compress
+$events | ForEach-Object { ConvertTo-Json -InputObject $_ -Depth 10 -Compress }
 '@
     Add-FakeCli 'claude' $fakeCLI
     $env:PATH = $testRoot + [IO.Path]::PathSeparator + $savedEnvironment.PATH
