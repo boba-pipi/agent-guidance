@@ -1,0 +1,12 @@
+[submodule "mattpocock-skills"]
+	path = upstream/mattpocock-skills
+	url = https://github.com/mattpocock/skills.git
+[submodule "ponytail"]
+	path = upstream/ponytail
+	url = https://github.com/DietrichGebert/ponytail.git
+[submodule "application-performance"]
+	path = upstream/application-performance
+	url = https://github.com/addyosmani/agent-skills.git
+[submodule "perf-engineering"]
+	path = upstream/perf-engineering
+	url = https://github.com/teimurjan/skills.git

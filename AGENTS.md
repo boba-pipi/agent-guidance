@@ -29,7 +29,9 @@ Select the matching installed skills automatically. Use the current task and pro
 
 If a skill is unavailable, apply the closest verified workflow and disclose any missing evidence or verification. If a helper's instructions conflict with the user's task, repository rules or language conventions, follow those applicable constraints.
 
-### Optional upstream skills
+### Upstream skills
+
+The [installer](README.md#install) installs the following skills at the revisions pinned by this repository.
 
 - `codebase-design` and `diagnosing-bugs` are available from [Matt Pocock's skills](https://github.com/mattpocock/skills).
 - For plan and design interviews, install [`grill-me`](https://github.com/mattpocock/skills/blob/6eeb81b5fcfeeb5bd531dd47ab2f9f2bbea27461/skills/productivity/grill-me/SKILL.md) and its [`grilling`](https://github.com/mattpocock/skills/blob/6eeb81b5fcfeeb5bd531dd47ab2f9f2bbea27461/skills/productivity/grilling/SKILL.md) dependency.
